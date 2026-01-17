@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import CodeGenerationIndicator from "@/components/CodeGenerationIndicator";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface Message {
   role: "user" | "assistant";
@@ -97,6 +99,24 @@ function extractHtmlFromResponse(text: string): string | null {
   return null;
 }
 
+// Function to inject custom styles for better preview experience
+function enhanceHtml(html: string): string {
+  const customStyles = `
+    <style>
+      /* Injected by CodeLab for better preview experience */
+      ::-webkit-scrollbar { width: 0px; height: 0px; background: transparent; }
+      ::-webkit-scrollbar-thumb { display: none; }
+      * { scrollbar-width: none; -ms-overflow-style: none; }
+      body { margin: 0; padding: 0; width: 100vw; height: 100vh; overflow-x: hidden; }
+    </style>
+  `;
+
+  if (html.includes("</head>")) {
+    return html.replace("</head>", `${customStyles}</head>`);
+  }
+  return html + customStyles;
+}
+
 export default function Playground() {
   // Chat state
   const [messages, setMessages] = useState<Message[]>([]);
@@ -113,6 +133,48 @@ export default function Playground() {
   const [code, setCode] = useState(DEFAULT_CODE);
   const [preview, setPreview] = useState("");
   const [rightPanelView, setRightPanelView] = useState<"code" | "preview">("code");
+  const [isFullScreen, setIsFullScreen] = useState(false);
+
+  // Layout state
+  const [chatWidth, setChatWidth] = useState(40); // Initial 40%
+  const [isDragging, setIsDragging] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const startResizing = useCallback(() => {
+    setIsDragging(true);
+  }, []);
+
+  const stopResizing = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  const resize = useCallback(
+    (e: MouseEvent) => {
+      if (isDragging && containerRef.current) {
+        const containerRect = containerRef.current.getBoundingClientRect();
+        const newWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100;
+        // Limit width between 20% and 80%
+        if (newWidth >= 20 && newWidth <= 80) {
+          setChatWidth(newWidth);
+        }
+      }
+    },
+    [isDragging]
+  );
+
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener("mousemove", resize);
+      window.addEventListener("mouseup", stopResizing);
+    } else {
+      window.removeEventListener("mousemove", resize);
+      window.removeEventListener("mouseup", stopResizing);
+    }
+    return () => {
+      window.removeEventListener("mousemove", resize);
+      window.removeEventListener("mouseup", stopResizing);
+    };
+  }, [isDragging, resize, stopResizing]);
 
   // Auto-scroll chat
   useEffect(() => {
@@ -124,7 +186,7 @@ export default function Playground() {
     const extractedHtml = extractHtmlFromResponse(content);
     if (extractedHtml) {
       setCode(extractedHtml);
-      setPreview(extractedHtml);
+      setPreview(enhanceHtml(extractedHtml));
       setRightPanelView("preview");
     }
   }, []);
@@ -159,6 +221,10 @@ export default function Playground() {
       let fullContent = "";
 
       if (reader) {
+        let hasStartedCode = false;
+        let lastPreviewUpdate = 0;
+        const PREVIEW_THROTTLE = 400; // Update preview every 400ms max
+
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -175,6 +241,37 @@ export default function Playground() {
                 if (parsed.content) {
                   fullContent += parsed.content;
                   setStreamingContent(fullContent);
+
+                  // Live preview: extract and show HTML as it's being generated
+                  if (fullContent.includes("```html")) {
+                    // Switch to preview view when code starts
+                    if (!hasStartedCode) {
+                      hasStartedCode = true;
+                      setRightPanelView("preview");
+                    }
+
+                    // Throttle preview updates to avoid flickering
+                    const now = Date.now();
+                    const htmlStart = fullContent.indexOf("```html") + 7;
+                    const htmlEnd = fullContent.lastIndexOf("```");
+                    const isComplete = htmlEnd > htmlStart;
+
+                    // Update if: complete, or throttle time passed and has </body> or </style>
+                    const partialHtml = isComplete
+                      ? fullContent.slice(htmlStart, htmlEnd).trim()
+                      : fullContent.slice(htmlStart).trim();
+
+                    // Only update preview if HTML has minimum structure or is complete
+                    const hasMinStructure = partialHtml.includes("</style>") ||
+                      partialHtml.includes("</body>") ||
+                      partialHtml.includes("</html>");
+
+                    if (isComplete || (hasMinStructure && now - lastPreviewUpdate > PREVIEW_THROTTLE)) {
+                      lastPreviewUpdate = now;
+                      setCode(partialHtml);
+                      setPreview(enhanceHtml(partialHtml));
+                    }
+                  }
                 }
               } catch {
                 // Skip invalid JSON
@@ -210,7 +307,7 @@ export default function Playground() {
   };
 
   const handleRun = () => {
-    setPreview(code);
+    setPreview(enhanceHtml(code));
     setRightPanelView("preview");
   };
 
@@ -293,7 +390,11 @@ export default function Playground() {
           />
         );
       }
-      return <span key={index} className="whitespace-pre-wrap">{part.content}</span>;
+      return (
+        <div key={index} className="prose prose-invert prose-sm max-w-none text-white prose-p:text-white prose-headings:text-white prose-ul:text-white prose-ol:text-white prose-li:text-white prose-strong:text-white prose-strong:font-bold prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-li:my-0 break-words">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{part.content}</ReactMarkdown>
+        </div>
+      );
     });
   };
 
@@ -331,14 +432,12 @@ export default function Playground() {
                   <label className="text-xs text-slate-400">Razonador:</label>
                   <button
                     onClick={() => setUseReasoning(!useReasoning)}
-                    className={`relative w-10 h-5 rounded-full transition-colors ${
-                      useReasoning ? "bg-purple-600" : "bg-slate-600"
-                    }`}
+                    className={`relative w-10 h-5 rounded-full transition-colors ${useReasoning ? "bg-purple-600" : "bg-slate-600"
+                      }`}
                   >
                     <span
-                      className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
-                        useReasoning ? "translate-x-5" : ""
-                      }`}
+                      className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${useReasoning ? "translate-x-5" : ""
+                        }`}
                     />
                   </button>
                 </div>
@@ -349,9 +448,12 @@ export default function Playground() {
       </header>
 
       {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden" ref={containerRef}>
         {/* Chat Panel - Left */}
-        <div className="w-full lg:w-2/5 flex flex-col border-r border-slate-700">
+        <div
+          className="flex flex-col border-r border-slate-700 h-full"
+          style={{ width: `${chatWidth}%` }}
+        >
           {/* Chat header */}
           <div className="bg-slate-800 px-4 py-2 border-b border-slate-700 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2">
@@ -369,9 +471,9 @@ export default function Playground() {
           </div>
 
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 flex flex-col custom-scrollbar">
             {messages.length === 0 && !streamingContent && (
-              <div className="h-full flex flex-col items-center justify-center text-slate-400">
+              <div className="flex-1 flex flex-col items-center justify-center text-slate-400">
                 <svg className="w-12 h-12 mb-3 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                 </svg>
@@ -388,11 +490,10 @@ export default function Playground() {
                 className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[85%] rounded-2xl px-4 py-2 ${
-                    message.role === "user"
-                      ? "bg-purple-600 text-white"
-                      : "bg-slate-700 text-slate-100"
-                  }`}
+                  className={`max-w-[85%] rounded-2xl px-4 py-2 ${message.role === "user"
+                    ? "bg-purple-600 text-white"
+                    : "bg-slate-700 text-slate-100"
+                    }`}
                 >
                   <div className="text-sm">{renderMessageContent(message.content)}</div>
                 </div>
@@ -448,18 +549,27 @@ export default function Playground() {
           </div>
         </div>
 
+        {/* Resizer Handle */}
+        <div
+          className={`w-1 bg-slate-700 hover:bg-purple-500 cursor-col-resize transition-colors z-10 hidden lg:block ${isDragging ? "bg-purple-500" : ""
+            }`}
+          onMouseDown={startResizing}
+        />
+
         {/* Right Panel - Code/Preview */}
-        <div className="hidden lg:flex w-3/5 flex-col">
+        <div
+          className="hidden lg:flex flex-col h-full"
+          style={{ width: `${100 - chatWidth}%` }}
+        >
           {/* Panel header with toggle */}
           <div className="bg-slate-800 px-4 py-2 border-b border-slate-700 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-1 bg-slate-700 rounded-lg p-1">
               <button
                 onClick={() => setRightPanelView("code")}
-                className={`flex items-center gap-2 px-3 py-1 rounded-md text-sm transition-colors ${
-                  rightPanelView === "code"
-                    ? "bg-slate-600 text-white"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
+                className={`flex items-center gap-2 px-3 py-1 rounded-md text-sm transition-colors ${rightPanelView === "code"
+                  ? "bg-slate-600 text-white"
+                  : "text-slate-400 hover:text-slate-200"
+                  }`}
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
@@ -468,11 +578,10 @@ export default function Playground() {
               </button>
               <button
                 onClick={() => setRightPanelView("preview")}
-                className={`flex items-center gap-2 px-3 py-1 rounded-md text-sm transition-colors ${
-                  rightPanelView === "preview"
-                    ? "bg-slate-600 text-white"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
+                className={`flex items-center gap-2 px-3 py-1 rounded-md text-sm transition-colors ${rightPanelView === "preview"
+                  ? "bg-slate-600 text-white"
+                  : "text-slate-400 hover:text-slate-200"
+                  }`}
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -483,6 +592,18 @@ export default function Playground() {
             </div>
 
             <div className="flex items-center gap-2">
+              {rightPanelView === "preview" && (
+                <button
+                  onClick={() => setIsFullScreen(true)}
+                  disabled={!preview}
+                  className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Pantalla completa"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 4l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                  </svg>
+                </button>
+              )}
               <button
                 onClick={handleClearCode}
                 className="px-3 py-1 text-xs text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
@@ -520,7 +641,8 @@ export default function Playground() {
               <textarea
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
-                className="flex-1 w-full bg-slate-900 text-slate-100 p-4 font-mono text-sm resize-none focus:outline-none"
+                className={`flex-1 w-full bg-slate-900 text-slate-100 p-4 font-mono text-sm resize-none focus:outline-none ${isDragging ? "pointer-events-none" : ""
+                  }`}
                 placeholder="Pega tu codigo HTML aqui o pidele a Grok que lo genere..."
                 spellCheck={false}
               />
@@ -533,7 +655,7 @@ export default function Playground() {
               {preview ? (
                 <iframe
                   srcDoc={preview}
-                  className="w-full h-full border-0"
+                  className={`w-full h-full border-0 block ${isDragging ? "pointer-events-none" : ""}`}
                   title="Preview"
                   sandbox="allow-scripts allow-modals"
                 />
@@ -557,6 +679,27 @@ export default function Playground() {
           El panel de codigo solo esta disponible en pantallas grandes
         </p>
       </div>
+
+      {/* Full Screen Overlay */}
+      {isFullScreen && (
+        <div className="fixed inset-0 z-50 bg-white">
+          <iframe
+            srcDoc={preview}
+            className="w-full h-full border-0 block"
+            title="Full Screen Preview"
+            sandbox="allow-scripts allow-modals"
+          />
+          <button
+            onClick={() => setIsFullScreen(false)}
+            className="absolute top-4 right-4 bg-slate-800 text-white p-2 rounded-full hover:bg-slate-700 transition-colors shadow-lg group"
+            title="Salir de pantalla completa"
+          >
+            <svg className="w-6 h-6 group-hover:scale-90 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
