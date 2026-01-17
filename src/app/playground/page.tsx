@@ -138,7 +138,16 @@ export default function Playground() {
   // Layout state
   const [chatWidth, setChatWidth] = useState(40); // Initial 40%
   const [isDragging, setIsDragging] = useState(false);
+  const [mobileTab, setMobileTab] = useState<"chat" | "code" | "preview">("chat");
+  const [isMobile, setIsMobile] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 1024);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   const startResizing = useCallback(() => {
     setIsDragging(true);
@@ -401,21 +410,45 @@ export default function Playground() {
   return (
     <div className="h-screen bg-slate-900 flex flex-col overflow-hidden">
       {/* Header */}
-      <header className="bg-slate-800 border-b border-slate-700 shrink-0">
-        <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8">
+      <header className="bg-slate-800 border-b border-slate-700 shrink-0 z-20">
+        <div className="max-w-full mx-auto px-4">
           <div className="flex justify-between items-center h-14">
-            <Link href="/" className="flex items-center gap-2">
-              <div className="w-7 h-7 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
+            <Link href="/" className="flex items-center gap-2 shrink-0">
+              <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
                 <span className="text-white font-bold text-xs">&lt;/&gt;</span>
               </div>
-              <span className="text-white font-semibold text-lg">Thader Lab</span>
+              <span className="text-white font-semibold text-lg hidden sm:block">Thader Lab</span>
             </Link>
 
-            {/* Model selector and settings */}
-            <div className="flex items-center gap-4">
-              {/* Model selector */}
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-slate-400">Modelo:</label>
+            {/* Mobile Tab Switcher */}
+            <div className="flex lg:hidden bg-slate-700 rounded-lg p-1 mx-2">
+              <button
+                onClick={() => setMobileTab("chat")}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${mobileTab === "chat" ? "bg-purple-600 text-white" : "text-slate-400"
+                  }`}
+              >
+                Chat
+              </button>
+              <button
+                onClick={() => setMobileTab("code")}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${mobileTab === "code" ? "bg-purple-600 text-white" : "text-slate-400"
+                  }`}
+              >
+                Código
+              </button>
+              <button
+                onClick={() => setMobileTab("preview")}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${mobileTab === "preview" ? "bg-purple-600 text-white" : "text-slate-400"
+                  }`}
+              >
+                Preview
+              </button>
+            </div>
+
+            {/* Model selector - hidden on very small screens to save space */}
+            <div className="flex items-center gap-2 sm:gap-4">
+              <div className="hidden xs:flex items-center gap-2">
+                <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Modelo:</label>
                 <select
                   value={model}
                   onChange={(e) => setModel(e.target.value as typeof model)}
@@ -451,8 +484,9 @@ export default function Playground() {
       <div className="flex-1 flex overflow-hidden" ref={containerRef}>
         {/* Chat Panel - Left */}
         <div
-          className="flex flex-col border-r border-slate-700 h-full"
-          style={{ width: `${chatWidth}%` }}
+          className={`flex-col border-r border-slate-700 h-full ${mobileTab === "chat" ? "flex w-full" : "hidden lg:flex"
+            }`}
+          style={{ width: !isMobile ? `${chatWidth}%` : undefined }}
         >
           {/* Chat header */}
           <div className="bg-slate-800 px-4 py-2 border-b border-slate-700 flex items-center justify-between shrink-0">
@@ -558,36 +592,46 @@ export default function Playground() {
 
         {/* Right Panel - Code/Preview */}
         <div
-          className="hidden lg:flex flex-col h-full"
-          style={{ width: `${100 - chatWidth}%` }}
+          className={`flex-col h-full transition-all duration-300 ${(mobileTab === "code" || mobileTab === "preview") ? "flex w-full" : "hidden lg:flex"
+            }`}
+          style={{ width: !isMobile ? `${100 - chatWidth}%` : undefined }}
         >
           {/* Panel header with toggle */}
           <div className="bg-slate-800 px-4 py-2 border-b border-slate-700 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-1 bg-slate-700 rounded-lg p-1">
+              {/* On mobile, we use the mobileTab switcher instead of this toggle if we want, 
+                  but we'll keep this sync'd for desktop but hide it on mobile to avoid double controls if preferred.
+                  Actually, let's keep it visible on mobile too for local switching. */}
               <button
-                onClick={() => setRightPanelView("code")}
-                className={`flex items-center gap-2 px-3 py-1 rounded-md text-sm transition-colors ${rightPanelView === "code"
+                onClick={() => {
+                  setRightPanelView("code");
+                  setMobileTab("code");
+                }}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs transition-colors ${rightPanelView === "code"
                   ? "bg-slate-600 text-white"
                   : "text-slate-400 hover:text-slate-200"
                   }`}
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
                 </svg>
-                Codigo
+                <span className="hidden xs:inline">Codigo</span>
               </button>
               <button
-                onClick={() => setRightPanelView("preview")}
-                className={`flex items-center gap-2 px-3 py-1 rounded-md text-sm transition-colors ${rightPanelView === "preview"
+                onClick={() => {
+                  setRightPanelView("preview");
+                  setMobileTab("preview");
+                }}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs transition-colors ${rightPanelView === "preview"
                   ? "bg-slate-600 text-white"
                   : "text-slate-400 hover:text-slate-200"
                   }`}
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                 </svg>
-                Preview
+                <span className="hidden xs:inline">Preview</span>
               </button>
             </div>
 
@@ -673,12 +717,7 @@ export default function Playground() {
         </div>
       </div>
 
-      {/* Mobile view hint */}
-      <div className="lg:hidden bg-slate-800 border-t border-slate-700 p-3 text-center shrink-0">
-        <p className="text-xs text-slate-400">
-          El panel de codigo solo esta disponible en pantallas grandes
-        </p>
-      </div>
+      {/* Mobile view hint removed as it is now fully responsive */}
 
       {/* Full Screen Overlay */}
       {isFullScreen && (
