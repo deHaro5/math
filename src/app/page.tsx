@@ -11,7 +11,7 @@ export default function Home() {
               <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
                 <span className="text-white font-bold text-sm">&lt;/&gt;</span>
               </div>
-              <span className="text-white font-semibold text-xl">CodeLab</span>
+              <span className="text-white font-semibold text-xl">Thader Lab</span>
             </div>
             <Link
               href="/playground"

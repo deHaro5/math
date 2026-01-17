@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "CodeLab - Playground para estudiantes",
+  title: "Thader Lab - Playground para estudiantes",
   description: "Crea y visualiza proyectos HTML, CSS y JavaScript de forma sencilla",
 };
 

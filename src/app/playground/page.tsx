@@ -107,7 +107,7 @@ function enhanceHtml(html: string): string {
       ::-webkit-scrollbar { width: 0px; height: 0px; background: transparent; }
       ::-webkit-scrollbar-thumb { display: none; }
       * { scrollbar-width: none; -ms-overflow-style: none; }
-      body { margin: 0; padding: 0; width: 100vw; height: 100vh; overflow-x: hidden; }
+      html, body { margin: 0; padding: 0; }
     </style>
   `;
 
@@ -408,7 +408,7 @@ export default function Playground() {
               <div className="w-7 h-7 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
                 <span className="text-white font-bold text-xs">&lt;/&gt;</span>
               </div>
-              <span className="text-white font-semibold text-lg">CodeLab</span>
+              <span className="text-white font-semibold text-lg">Thader Lab</span>
             </Link>
 
             {/* Model selector and settings */}
@@ -684,7 +684,7 @@ export default function Playground() {
       {isFullScreen && (
         <div className="fixed inset-0 z-50 bg-white">
           <iframe
-            srcDoc={preview}
+            srcDoc={enhanceHtml(code)}
             className="w-full h-full border-0 block"
             title="Full Screen Preview"
             sandbox="allow-scripts allow-modals"
