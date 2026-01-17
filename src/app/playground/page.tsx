@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
+import CodeGenerationIndicator from "@/components/CodeGenerationIndicator";
 
 interface Message {
   role: "user" | "assistant";
@@ -228,28 +229,71 @@ export default function Playground() {
     setStreamingContent("");
   };
 
-  // Render message content with code highlighting
-  const renderMessageContent = (content: string) => {
-    const parts = content.split(/(```[\s\S]*?```)/g);
+  // Check if content has code blocks (complete or in progress)
+  const hasCodeBlock = (content: string) => content.includes("```html");
+  const isCodeBlockComplete = (content: string) => {
+    const openCount = (content.match(/```html/gi) || []).length;
+    const closeCount = (content.match(/```\s*$/gm) || []).length;
+    // Also check for ``` followed by anything that's not a language identifier
+    const allCloses = (content.match(/```(?!\w)/g) || []).length;
+    return openCount > 0 && allCloses >= openCount;
+  };
+
+  // Render message content - hide code blocks and show indicator instead
+  const renderMessageContent = (content: string, isStreaming = false) => {
+    const hasCode = hasCodeBlock(content);
+    const codeComplete = isCodeBlockComplete(content);
+
+    // Split content into parts, separating code blocks
+    const parts: { type: "text" | "code"; content: string }[] = [];
+    let remaining = content;
+
+    // Regex to match complete code blocks
+    const codeBlockRegex = /```html[\s\S]*?```/gi;
+    let lastIndex = 0;
+    let match;
+
+    const tempContent = content;
+    const regex = /```html[\s\S]*?```/gi;
+
+    while ((match = regex.exec(tempContent)) !== null) {
+      // Add text before this code block
+      if (match.index > lastIndex) {
+        parts.push({ type: "text", content: tempContent.slice(lastIndex, match.index) });
+      }
+      // Add code block marker
+      parts.push({ type: "code", content: match[0] });
+      lastIndex = regex.lastIndex;
+    }
+
+    // Add remaining text after last code block
+    if (lastIndex < tempContent.length) {
+      const remainingText = tempContent.slice(lastIndex);
+      // Check if there's an incomplete code block
+      if (remainingText.includes("```html") && !remainingText.includes("```", remainingText.indexOf("```html") + 7)) {
+        // Split at the incomplete code block
+        const incompleteStart = remainingText.indexOf("```html");
+        if (incompleteStart > 0) {
+          parts.push({ type: "text", content: remainingText.slice(0, incompleteStart) });
+        }
+        parts.push({ type: "code", content: remainingText.slice(incompleteStart) });
+      } else {
+        parts.push({ type: "text", content: remainingText });
+      }
+    }
+
     return parts.map((part, index) => {
-      if (part.startsWith("```")) {
-        const langMatch = part.match(/```(\w*)\n?/);
-        const lang = langMatch ? langMatch[1] : "";
-        const codeContent = part.replace(/```\w*\n?/, "").replace(/```$/, "");
+      if (part.type === "code") {
+        const isThisBlockComplete = part.content.match(/```\s*$/);
         return (
-          <div key={index} className="my-2">
-            {lang && (
-              <div className="bg-slate-700 text-xs text-slate-300 px-3 py-1 rounded-t-lg">
-                {lang}
-              </div>
-            )}
-            <pre className={`bg-slate-800 p-3 ${lang ? "rounded-b-lg" : "rounded-lg"} overflow-x-auto text-sm`}>
-              <code className="text-green-300">{codeContent}</code>
-            </pre>
-          </div>
+          <CodeGenerationIndicator
+            key={index}
+            isGenerating={!isThisBlockComplete}
+            isComplete={!!isThisBlockComplete}
+          />
         );
       }
-      return <span key={index} className="whitespace-pre-wrap">{part}</span>;
+      return <span key={index} className="whitespace-pre-wrap">{part.content}</span>;
     });
   };
 
